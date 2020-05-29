@@ -26,7 +26,7 @@ type tokenDefinition struct {
 	regEx     string
 }
 
-var tokenTypes = [7]tokenDefinition{
+var tokenTypes = [8]tokenDefinition{
 	{tokenType: "def", regEx: `\bdef\b`},
 	{tokenType: "end", regEx: `\bend\b`},
 	{tokenType: "identifier", regEx: `\b[a-zA-Z]+\b`},
@@ -34,10 +34,11 @@ var tokenTypes = [7]tokenDefinition{
 	{tokenType: "oparen", regEx: `\(`},
 	{tokenType: "cparen", regEx: `\)`},
 	{tokenType: "comma", regEx: `,`},
+	{tokenType: "addition", regEx: `\+`},
 }
 
 type parser interface {
-	parse() defNode
+	parse() []defNode
 }
 
 type tokenParser struct{}
@@ -49,10 +50,11 @@ type defNode struct {
 }
 
 type treeNode struct {
-	nodeType    string
-	integerNode integerNode
-	callNode    callNode
-	varRefNode  varRefNode
+	nodeType      string
+	integerNode   integerNode
+	callNode      callNode
+	varRefNode    varRefNode
+	operationNode operationNode
 }
 
 type integerNode struct {
@@ -64,18 +66,22 @@ type callNode struct {
 	argExpers []treeNode
 }
 
+type operationNode struct {
+	operation string
+}
+
 type varRefNode struct {
 	value string
 }
 
 type generator interface {
-	generate(node defNode) string
+	generate() string
 }
 
 type codeGenerator struct{}
 
 var tokens []token
-var tree defNode
+var tree []defNode
 
 func main() {
 	//Read Source
@@ -85,22 +91,16 @@ func main() {
 
 	//Convert to tokens
 	var t tokenizer = sourceTokenizer{}
-	////Check Tokens
 	tokens = t.tokenize(&data)
-	// for _, value := range tokens {
-	// 	fmt.Printf("%v\n", value)
-	// }
 
 	//Parse Tokens
 	var p parser = tokenParser{}
 	tree = p.parse()
-	//	fmt.Printf("Name: %v\nArg Names: %v\nBody: %v\n", tree.name, tree.argNames, tree.body)
 
 	//Generate Code
 	var g generator = codeGenerator{}
-	c := g.generate(tree)
+	c := g.generate()
 
-	fmt.Println("function add(x, y) { return x + y };")
 	fmt.Println(c)
 	fmt.Println("console.log(f(1,2));")
 
@@ -144,17 +144,25 @@ func tokenizeOneToken(code *[]byte) (token, error) {
 	return foundReturn, nil
 }
 
-func (tp tokenParser) parse() defNode {
-
+func (tp tokenParser) parse() []defNode {
 	return parseDef()
 }
 
-func parseDef() defNode {
-	consume("def")
-	name := consume("identifier")
-	argNames := parseArgNames()
-	body := parseExpr()
-	return defNode{name: name.value, argNames: argNames, body: body}
+func parseDef() []defNode {
+	var parsedNodes []defNode
+
+	for len(tokens) > 0 {
+		consume("def")
+		parsedNodes = append(parsedNodes, defNode{name: consume("identifier").value, argNames: parseArgNames(), body: parseExpr()})
+		consume("end")
+		if len(tokens) > 0 {
+			for _, pn := range parseDef() {
+				parsedNodes = append(parsedNodes, pn)
+			}
+
+		}
+	}
+	return parsedNodes
 }
 
 func parseArgNames() []string {
@@ -172,6 +180,7 @@ func parseArgNames() []string {
 }
 
 func peek(expectedType string, offset ...int) bool {
+
 	os := 0
 	if len(offset) > 0 {
 		os = offset[0]
@@ -184,6 +193,8 @@ func parseExpr() treeNode {
 		return parseInteger()
 	} else if peek("identifier") && peek("oparen", 1) {
 		return parseCall()
+	} else if peek("identifier") && peek("addition", 1) {
+		return parseOperation()
 	}
 
 	return parseVarRef()
@@ -196,10 +207,30 @@ func parseInteger() treeNode {
 	return treeNode{nodeType: "int", integerNode: integerNode{value: i}}
 }
 
+func parseOperation() treeNode {
+	return treeNode{nodeType: "operation", operationNode: operationNode{operation: parseOperationExpers()}}
+}
+
 func parseCall() treeNode {
 	callName := consume("identifier").value
 
 	return treeNode{nodeType: "call", callNode: callNode{name: callName, argExpers: parseArgExpers()}}
+}
+
+func parseOperationExpers() string {
+	var opExpers []string
+	opExpers = append(opExpers, consume("identifier").value)
+
+	for peek("addition") || peek("identifier") {
+		if peek("addition") {
+			opExpers = append(opExpers, consume("addition").value)
+		}
+		if peek("identifier") {
+			opExpers = append(opExpers, consume("identifier").value)
+		}
+
+	}
+	return strings.Join(opExpers, "")
 }
 
 func parseArgExpers() []treeNode {
@@ -212,7 +243,6 @@ func parseArgExpers() []treeNode {
 			argExpers = append(argExpers, parseExpr())
 		}
 	}
-	//fmt.Println("CONSUME THIS PAREN")
 	consume("cparen")
 	return argExpers
 }
@@ -230,10 +260,13 @@ func consume(expectedType string) token {
 	panic(fmt.Errorf("Expected token type %v but got %v", expectedType, token.tokenType))
 }
 
-func (gc codeGenerator) generate(node defNode) string {
-
-	body := generateBody(node.body)
-	code := fmt.Sprintf("function %v(%v) { return %v };", node.name, strings.Join(node.argNames, ","), body)
+func (gc codeGenerator) generate() string {
+	body := ""
+	code := ""
+	for _, node := range tree {
+		body = generateBody(node.body)
+		code = fmt.Sprintf("%v\n%v", code, fmt.Sprintf("function %v(%v) { return %v };", node.name, strings.Join(node.argNames, ","), body))
+	}
 	return code
 }
 
@@ -250,8 +283,9 @@ func generateBody(bodyNode treeNode) string {
 	case "varRef":
 		bodyCode = bodyNode.varRefNode.value
 	case "int":
-
 		bodyCode = fmt.Sprint(bodyNode.integerNode.value)
+	case "operation":
+		bodyCode = fmt.Sprint(bodyNode.operationNode.operation)
 	default:
 		panic(fmt.Errorf("Unknown Body Node Type %v", bodyNode.nodeType))
 	}
