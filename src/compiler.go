@@ -221,12 +221,15 @@ func parseOperationExpers() string {
 	var opExpers []string
 	opExpers = append(opExpers, consume("identifier").value)
 
-	for peek("addition") || peek("identifier") {
+	for peek("addition") || peek("identifier") || peek("integer") {
 		if peek("addition") {
 			opExpers = append(opExpers, consume("addition").value)
 		}
 		if peek("identifier") {
 			opExpers = append(opExpers, consume("identifier").value)
+		}
+		if peek("integer") {
+			opExpers = append(opExpers, consume("integer").value)
 		}
 
 	}
