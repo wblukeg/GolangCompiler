@@ -23,6 +23,15 @@ def add(x, y)
 end
 ```
 
+#### Sample Output
+
+```
+function f(x,y) { return add(x,y) };
+function add(x,y) { return x+y };
+function tacos() { return 1 };
+console.log(f(1,2));
+```
+
 **NOTE:** Currently, there's no input to change values or call created functions. There is a placeholder `console.log(f(1,2))` to run the generated code.
 
 #### Running The Code
