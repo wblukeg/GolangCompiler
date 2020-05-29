@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -78,7 +79,8 @@ var tree defNode
 
 func main() {
 	//Read Source
-	data, err := ioutil.ReadFile("code.lg")
+	absPath, _ := filepath.Abs("./src/example.lg")
+	data, err := ioutil.ReadFile(absPath)
 	check(err)
 
 	//Convert to tokens
